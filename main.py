@@ -1,18 +1,20 @@
 import subprocess; subprocess.run(["playwright", "install", "chromium"])
 
 import asyncio
+import json, os
 from playwright.async_api import async_playwright
 from datetime import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# إعداد Google Sheets
+# إعداد Google Sheets باستخدام متغير بيئة بدل ملف
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
+creds_dict = json.loads(os.environ["GOOGLE_CREDS"])
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 sheet = client.open("بث المباريات").sheet1
 
-# قائمة المواقع التي تدعم نفس البنية (يتم توسيعها لاحقًا)
+# قائمة المواقع (كلها تعتمد نفس التصميم في الوقت الحالي)
 sites = {
     "الأسطورة": "https://hd7.live",
     "كورة لايف": "https://www.koraa-live.com",
