@@ -1,72 +1,79 @@
 import asyncio
 from playwright.async_api import async_playwright
-from datetime import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import json
-import os
 
-# تحميل بيانات Google Sheets من متغير البيئة GOOGLE_CREDS
-creds_dict = json.loads(os.environ["GOOGLE_CREDS"])
+# ✅ بيانات Google Sheets - استبدل القيم الحقيقية
+creds_dict = {
+    "type": "service_account",
+    "project_id": "YOUR_PROJECT_ID",
+    "private_key_id": "YOUR_PRIVATE_KEY_ID",
+    "private_key": "-----BEGIN PRIVATE KEY-----\nYOUR_PRIVATE_KEY\n-----END PRIVATE KEY-----\n",
+    "client_email": "YOUR_CLIENT_EMAIL",
+    "client_id": "YOUR_CLIENT_ID",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_x509_cert_url": "YOUR_CERT_URL"
+}
+
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
-sheet = client.open("بث المباريات").sheet1
+sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1j4pzqKqgm9Umae7sdP1t6RkXKqELkWuIusUl1on9lz8/edit#gid=0")
+worksheet = sheet.get_worksheet(0)
 
-# المواقع المستهدفة (تُفعل واحدة في كل دورة)
-TARGET_SITES = [
-    {"name": "الأسطورة", "url": "https://www.hd7.live"},
-    {"name": "كورة لايف", "url": "https://www.koraa-live.com"},
-    {"name": "يلا شوت", "url": "https://www.yalla-shooot.com"},
-    {"name": "كورة 4 لايف", "url": "https://online.koora4live.live/home33"},
-    {"name": "كورة أون لاين", "url": "https://m6.kora-online-tv.com"},
+# 🧠 دالة استخراج من موقع معيّن
+async def extract_from_site(page, url, selector, source_name):
+    await page.goto(url)
+    await page.wait_for_timeout(5000)  # انتظر التحميل
+
+    matches = await page.query_selector_all(selector)
+    for match in matches:
+        text = await match.inner_text()
+        worksheet.append_row([source_name, text])
+
+# ✅ المواقع المستهدفة و السيلكتورات الخاصة بها
+sites = [
+    {
+        "url": "https://livehd7.today/",
+        "selector": "div.match-title",  # غيّره إذا تغيّر
+        "name": "livehd7"
+    },
+    {
+        "url": "https://yalla-shoot.io/",
+        "selector": ".match-card h3",  # مثال: غيّره إذا تغيّر
+        "name": "yalla-shoot.io"
+    },
+    {
+        "url": "https://www.yallashoot-news.com/",
+        "selector": ".matches .match .teams",  # غيّره إذا تغيّر
+        "name": "yallashoot-news"
+    },
+    {
+        "url": "https://www.yalla-shoot.today/",
+        "selector": ".content .match-card .teams",  # غيّره إذا تغيّر
+        "name": "yalla-shoot.today"
+    },
+    {
+        "url": "https://www.alostora.live/",
+        "selector": ".match-title",  # غيّره إذا تغيّر
+        "name": "alostora"
+    }
 ]
 
+# ✅ التشغيل الرئيسي
 async def run():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        today = datetime.now().strftime("%Y-%m-%d %H:%M")
+        page = await browser.new_page()
 
-        for site in TARGET_SITES:
-            page = await browser.new_page()
+        for site in sites:
             try:
-                await page.goto(site["url"], timeout=60000)
-                await page.wait_for_selector(".match-card", timeout=15000)
-
-                matches = await page.query_selector_all(".match-card")
-
-                for match in matches:
-                    try:
-                        team1 = await match.query_selector(".team-1")
-                        team2 = await match.query_selector(".team-2")
-                        match_time = await match.query_selector(".match-time")
-
-                        team1_text = await team1.inner_text()
-                        team2_text = await team2.inner_text()
-                        match_time_text = await match_time.inner_text()
-
-                        sheet.append_row([
-                            f"{team1_text.strip()} - {team2_text.strip()}",
-                            match_time_text.strip(),
-                            today
-                        ])
-
-                        print(f"✅ {site['name']} | {team1_text.strip()} vs {team2_text.strip()} | {match_time_text.strip()}")
-
-                    except Exception as e:
-                        print(f"⚠️ فشل في استخراج مباراة داخل {site['name']}: {e}")
-
+                await extract_from_site(page, site["url"], site["selector"], site["name"])
             except Exception as e:
-                print(f"❌ الموقع {site['name']} لا يعمل أو لم يُحمّل بنجاح: {e}")
-
-            await page.close()
+                print(f"❌ Error scraping {site['url']}: {e}")
 
         await browser.close()
 
-# لجعل البوت يعمل باستمرار كل ساعة (على Render)
-if __name__ == "__main__":
-    import time
-    while True:
-        asyncio.run(run())
-        print("🕒 تم الانتظار ساعة قبل التشغيل التالي...")
-        time.sleep(3600)
+asyncio.run(run())
