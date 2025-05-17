@@ -1,38 +1,38 @@
-import subprocess; subprocess.run(["playwright", "install", "chromium"])
-
 import asyncio
-import json, os
 from playwright.async_api import async_playwright
 from datetime import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import json
+import os
 
-# إعداد Google Sheets باستخدام متغير بيئة بدل ملف
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+# تحميل بيانات Google Sheets من متغير البيئة GOOGLE_CREDS
 creds_dict = json.loads(os.environ["GOOGLE_CREDS"])
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 sheet = client.open("بث المباريات").sheet1
 
-# قائمة المواقع (كلها تعتمد نفس التصميم في الوقت الحالي)
-sites = {
-    "الأسطورة": "https://hd7.live",
-    "كورة لايف": "https://www.koraa-live.com",
-    "يلا شوت": "https://www.yalla-shooot.com",
-    "كورة 4 لايف": "https://online.koora4live.live/home33/",
-    "كورة اون لاين": "https://m6.kora-online-tv.com"
-}
+# المواقع المستهدفة (تُفعل واحدة في كل دورة)
+TARGET_SITES = [
+    {"name": "الأسطورة", "url": "https://www.hd7.live"},
+    {"name": "كورة لايف", "url": "https://www.koraa-live.com"},
+    {"name": "يلا شوت", "url": "https://www.yalla-shooot.com"},
+    {"name": "كورة 4 لايف", "url": "https://online.koora4live.live/home33"},
+    {"name": "كورة أون لاين", "url": "https://m6.kora-online-tv.com"},
+]
 
 async def run():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         today = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-        for name, url in sites.items():
+        for site in TARGET_SITES:
             page = await browser.new_page()
             try:
-                await page.goto(url, timeout=60000)
+                await page.goto(site["url"], timeout=60000)
                 await page.wait_for_selector(".match-card", timeout=15000)
+
                 matches = await page.query_selector_all(".match-card")
 
                 for match in matches:
@@ -50,14 +50,23 @@ async def run():
                             match_time_text.strip(),
                             today
                         ])
-                        print(f"✅ [{name}] {team1_text.strip()} vs {team2_text.strip()} | {match_time_text.strip()}")
+
+                        print(f"✅ {site['name']} | {team1_text.strip()} vs {team2_text.strip()} | {match_time_text.strip()}")
+
                     except Exception as e:
-                        print(f"⚠️ خطأ في مباراة داخل {name}: {e}")
+                        print(f"⚠️ فشل في استخراج مباراة داخل {site['name']}: {e}")
+
             except Exception as e:
-                print(f"❌ تعذر الوصول إلى الموقع {name}: {e}")
-            finally:
-                await page.close()
+                print(f"❌ الموقع {site['name']} لا يعمل أو لم يُحمّل بنجاح: {e}")
+
+            await page.close()
 
         await browser.close()
 
-asyncio.run(run())
+# لجعل البوت يعمل باستمرار كل ساعة (على Render)
+if __name__ == "__main__":
+    import time
+    while True:
+        asyncio.run(run())
+        print("🕒 تم الانتظار ساعة قبل التشغيل التالي...")
+        time.sleep(3600)
